@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1730">
+  <title>Gerakan Tubuhmu</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- layar.js: bingkai 16:9, layar penuh, dan pemberitahuan landscape. Harus dimuat sebelum game.js. -->
+  <script src="layar.js"></script>
+</head>
+<body>
+
+  <!-- ===== Bingkai permainan 16:9 (ukuran desain 960x540, diskalakan oleh layar.js lewat --fit) ===== -->
+  <div class="bingkai" id="bingkai">
+
+    <canvas id="gameCanvas" width="960" height="540" aria-label="Area permainan"></canvas>
+
+    <!-- Pesan / instruksi untuk pemain -->
+    <div id="banner" class="banner info" role="status" aria-live="polite"></div>
+
+    <!-- Pratinjau kamera kecil di pojok kanan atas -->
+    <div class="camera-box" id="cameraBox">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="cameraPlaceholder" class="camera-placeholder">Kamera belum aktif</div>
+    </div>
+
+    <!-- Tombol emoji kecil di pojok kanan bawah -->
+    <div class="ikon-bar">
+      <button id="btnSuara" class="ikon" type="button" title="Matikan suara (M)" aria-label="Suara">🔊</button>
+      <button id="btnPanel" class="ikon" type="button" title="Pengaturan" aria-label="Pengaturan" aria-controls="panel" aria-expanded="false">⚙️</button>
+      <button class="ikon" type="button" data-fs title="Layar penuh (F)" aria-label="Layar penuh">📺</button>
+      <button id="btnStop" class="ikon" type="button" title="Hentikan kamera" aria-label="Hentikan kamera" disabled>⏹️</button>
+    </div>
+
+    <!-- Panel status, debug, dan pengaturan (geser dari kanan) -->
+    <aside class="panel" id="panel" aria-label="Status dan pengaturan">
+      <div class="panel-head">
+        <h2>Status &amp; pengaturan</h2>
+        <button id="btnPanelClose" class="btn btn-mini" type="button">Tutup</button>
+      </div>
+
+      <section class="block">
+        <h3>Status</h3>
+        <ul class="pills">
+          <li><span id="pillCamera" class="pill off"><i class="dot"></i><span>Kamera: mati</span></span></li>
+          <li><span id="pillModel" class="pill off"><i class="dot"></i><span>Model: belum dimuat</span></span></li>
+          <li><span id="pillBody" class="pill off"><i class="dot"></i><span>Tubuh: -</span></span></li>
+        </ul>
+        <label class="check"><input type="checkbox" id="chkCam" checked> Tampilkan pratinjau kamera</label>
+      </section>
+
+      <section class="block">
+        <h3>Alat uji</h3>
+        <div class="alat">
+          <button id="btnCalibrate" class="btn btn-accent" type="button" disabled>Kalibrasi Ulang</button>
+          <button id="btnTest" class="btn btn-success" type="button" disabled>Mulai Tes Gerakan</button>
+        </div>
+        <p class="source">Kalibrasi dan tes berjalan otomatis saat game dibuka. Tombol ini hanya untuk mengulang atau menjeda input tubuh.</p>
+      </section>
+
+      <section class="block">
+        <h3>Gerakan yang dikenali</h3>
+        <div class="chips">
+          <div class="chip" id="chipDir"><span class="chip-label">Arah</span><strong id="valDir">-</strong></div>
+          <div class="chip" id="chipJump"><span class="chip-label">Lompat</span><strong id="valJump">-</strong></div>
+          <div class="chip" id="chipHands"><span class="chip-label">Kedua tangan</span><strong id="valHands">-</strong></div>
+          <div class="chip" id="chipBody"><span class="chip-label">Tubuh</span><strong id="valBody">-</strong></div>
+        </div>
+        <p class="source">Sumber input: <strong id="valSource">-</strong></p>
+      </section>
+
+      <section class="block" id="debugCard">
+        <div class="card-head">
+          <h3>Mode debug</h3>
+          <label class="check"><input type="checkbox" id="chkDebug" checked> Tampilkan</label>
+        </div>
+        <dl class="debug" id="debugList">
+          <dt>Posisi horizontal</dt><dd id="dbgX">-</dd>
+          <dt>Perubahan vertikal</dt><dd id="dbgY">-</dd>
+          <dt>Status lompatan</dt><dd id="dbgJump">-</dd>
+          <dt>Kedua tangan</dt><dd id="dbgHands">-</dd>
+          <dt>Landmark lengkap</dt><dd id="dbgLm">-</dd>
+          <dt>FPS deteksi</dt><dd id="dbgFps">-</dd>
+          <dt>Kalibrasi</dt><dd id="dbgCalib">Belum</dd>
+        </dl>
+      </section>
+
+      <section class="block">
+        <h3>Pengaturan deteksi</h3>
+        <div class="sliders">
+          <label class="slider">
+            <span>Jarak kamera</span>
+            <select id="selectRange">
+              <option value="full">Seluruh badan (kepala hingga kaki)</option>
+              <option value="knee" selected>Sampai lutut (kepala hingga lutut)</option>
+              <option value="hip">Setengah badan (kepala hingga pinggul)</option>
+            </select>
+            <small>Titik tubuh yang wajib terlihat. Lompat hanya memakai bahu dan pinggul, jadi kaki tidak wajib.</small>
+          </label>
+          <label class="slider">
+            <span>Ambang lompat <b id="valJumpThr">0.12</b></span>
+            <input type="range" id="sliderJump" min="0.05" max="0.50" step="0.01" value="0.12">
+            <small>Makin kecil = makin mudah memicu lompat.</small>
+          </label>
+          <label class="slider">
+            <span>Dead zone kiri-kanan <b id="valDead">0.05</b></span>
+            <input type="range" id="sliderDead" min="0.01" max="0.15" step="0.01" value="0.05">
+            <small>Gerakan kecil di dalam zona ini dianggap "tengah".</small>
+          </label>
+          <label class="slider">
+            <span>Jeda antar lompatan <b id="valCool">400 ms</b></span>
+            <input type="range" id="sliderCooldown" min="300" max="1500" step="50" value="400">
+            <small>Mencegah satu lompatan fisik terhitung berkali-kali.</small>
+          </label>
+        </div>
+        <p class="keys">
+          <strong>Keyboard cadangan:</strong>
+          panah kiri/kanan = bergerak, panah atas = lompat, spasi (tahan) = angkat tangan, Enter = mulai/ulang game, F = layar penuh, M = suara hidup/mati.
+        </p>
+      </section>
+    </aside>
+
+    <!-- Pesan singkat (dipakai layar.js, mis. bila layar penuh tidak didukung) -->
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <!-- Pop-up besar: petunjuk + tombol kamera, lalu tahap persiapan (mendeteksi tubuh, kalibrasi, hitungan mundur) -->
+    <div id="popup" class="popup" role="dialog" aria-modal="true" aria-labelledby="popupJudul">
+      <div class="popup-kartu">
+        <h1 id="popupJudul">GERAKAN TUBUHMU</h1>
+
+        <!-- Tampilan awal: cara bermain + tombol Aktifkan Kamera -->
+        <div id="popupAwal">
+          <p class="popup-sub">Kumpulkan koin sebanyak-banyaknya!</p>
+          <ul class="popup-aksi">
+            <li><span aria-hidden="true">↔️</span>Geser kiri-kanan<small>ambil koin</small></li>
+            <li><span aria-hidden="true">⬆️</span>Lompat<small>lewati kayu &amp; ambil koin tinggi</small></li>
+            <li><span aria-hidden="true">🙌</span>Angkat kedua tangan<small>magnet koin</small></li>
+          </ul>
+          <p id="popupMsg" class="popup-msg"></p>
+          <button id="btnStart" class="btn btn-primary btn-besar" type="button">Aktifkan Kamera</button>
+          <button id="btnKeyboard" class="link-btn" type="button">Main pakai keyboard saja</button>
+          <p class="kredit">Developed by Kurnia Ichsan</p>
+        </div>
+
+        <!-- Tampilan persiapan: berganti sendiri mengikuti tahap -->
+        <div id="popupTahap" hidden>
+          <ol class="langkah" aria-label="Tahap persiapan">
+            <li id="lg1">Mendeteksi tubuh</li>
+            <li id="lg2">Kalibrasi</li>
+            <li id="lg3">Mulai</li>
+          </ol>
+          <div id="tahapIkon" class="tahap-ikon" aria-hidden="true">⏳</div>
+          <h2 id="tahapJudul" class="tahap-judul">Menyiapkan game</h2>
+          <p id="tahapInfo" class="tahap-info"></p>
+          <div id="tahapAngka" class="tahap-angka" aria-live="polite" hidden></div>
+          <button id="btnBatal" class="link-btn" type="button" hidden>Batal</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Pemberitahuan: HP/tablet posisi tegak harus diputar ke landscape ===== -->
+  <div id="putar" class="putar" role="alert">
+    <div class="putar-ikon" aria-hidden="true"></div>
+    <h1>Putar HP ke mode landscape</h1>
+    <p>Gerakan Tubuhmu dimainkan dengan layar mendatar (16:9) supaya seluruh tubuhmu dan arena game terlihat.</p>
+    <p class="putar-kecil">Jika layar tidak berputar, matikan "Kunci rotasi layar" di pengaturan HP.</p>
+    <button class="btn btn-primary btn-besar" type="button" data-fs>Layar penuh &amp; kunci landscape</button>
+  </div>
+
+  <!-- game.js dimuat sebagai module; library MediaPipe dimuat lewat import() hanya saat kamera diaktifkan.
+       Karena memakai module, halaman harus dibuka lewat Live Server (bukan file://). -->
+  <script type="module" src="game.js"></script>
+</body>
+</html>
